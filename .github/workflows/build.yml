@@ -6,24 +6,25 @@ on:
 
 jobs:
   build:
-    runs-on: macos-14
+    # 私有仓库用不了 arm64 的 macos-14，这里用 Intel 的 macos-13
+    runs-on: macos-13
     steps:
       - uses: actions/checkout@v4
 
-      # 关键：用老版 Xcode（iOS 17 之前的 SDK），避免 __objc_methlist / __objc_stubs
-      # 这些新格式在老 iOS 的 dyld 上不支持
+      # 优先选 Xcode 14.3（iOS 16.4 SDK，和能跑通的 SecretFriends 一致）
       - name: Select older Xcode
         run: |
           set -e
-          for v in 15.2 15.1 15.0.1 15.0; do
+          for v in 14.3.1 14.3 15.2 15.1 15.0.1 15.0; do
             if [ -d "/Applications/Xcode_$v.app" ]; then
-              echo "using Xcode $v"
+              echo "== using Xcode $v"
               sudo xcode-select -s "/Applications/Xcode_$v.app"
               break
             fi
           done
           xcodebuild -version
           xcrun --sdk iphoneos --show-sdk-version
+          ls /Applications | grep -i xcode || true
 
       - name: Build dylib
         run: |
@@ -45,7 +46,6 @@ jobs:
             src/WLHook.m src/WLUI.m \
             -undefined dynamic_lookup
           ls -l build/MiYouHide.dylib
-          otool -l build/MiYouHide.dylib | grep -A3 -E "LC_BUILD_VERSION" || true
           otool -l build/MiYouHide.dylib | grep -E "sectname __objc|sectname __init" || true
           codesign -s - -f --timestamp=none build/MiYouHide.dylib || true
 
