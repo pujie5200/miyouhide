@@ -6,16 +6,14 @@ on:
 
 jobs:
   build:
-    # 私有仓库用不了 arm64 的 macos-14，这里用 Intel 的 macos-13
-    runs-on: macos-13
+    runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
 
-      # 优先选 Xcode 14.3（iOS 16.4 SDK，和能跑通的 SecretFriends 一致）
-      - name: Select older Xcode
+      - name: Select Xcode
         run: |
           set -e
-          for v in 14.3.1 14.3 15.2 15.1 15.0.1 15.0; do
+          for v in 15.4 15.3 15.2 15.1 15.0.1 15.0 14.3.1; do
             if [ -d "/Applications/Xcode_$v.app" ]; then
               echo "== using Xcode $v"
               sudo xcode-select -s "/Applications/Xcode_$v.app"
@@ -23,30 +21,23 @@ jobs:
             fi
           done
           xcodebuild -version
-          xcrun --sdk iphoneos --show-sdk-version
-          ls /Applications | grep -i xcode || true
+          echo "SDK=$(xcrun --sdk iphoneos --show-sdk-version)"
+          ls /Applications | grep -i '^Xcode' || true
 
-      - name: Build dylib
+      - name: Build
         run: |
           set -eux
           SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
           mkdir -p build
-          xcrun --sdk iphoneos clang \
-            -arch arm64 \
-            -miphoneos-version-min=15.0 \
-            -fobjc-arc \
-            -fno-objc-relative-method-lists \
-            -O2 \
-            -isysroot "$SDK" \
-            -dynamiclib \
-            -framework Foundation \
-            -framework UIKit \
-            -install_name @executable_path/MiYouHide.dylib \
-            -o build/MiYouHide.dylib \
-            src/WLHook.m src/WLUI.m \
-            -undefined dynamic_lookup
+          common=(-arch arm64 -miphoneos-version-min=15.0 -fobjc-arc -fno-objc-relative-method-lists -O2 -isysroot "$SDK" -dynamiclib -framework Foundation -framework UIKit -install_name @executable_path/MiYouHide.dylib -undefined dynamic_lookup)
+          if xcrun --sdk iphoneos clang "${common[@]}" -Wl,-no_objc_stubs -Wl,-no_fixup_chains -o build/MiYouHide.dylib src/WLHook.m src/WLUI.m; then
+            echo "== built with -no_objc_stubs -no_fixup_chains"
+          else
+            echo "== retry without extra linker flags"
+            xcrun --sdk iphoneos clang "${common[@]}" -o build/MiYouHide.dylib src/WLHook.m src/WLUI.m
+          fi
           ls -l build/MiYouHide.dylib
-          otool -l build/MiYouHide.dylib | grep -E "sectname __objc|sectname __init" || true
+          otool -l build/MiYouHide.dylib | grep -E "sectname __objc|sectname __init|LC_BUILD_VERSION" || true
           codesign -s - -f --timestamp=none build/MiYouHide.dylib || true
 
       - name: Upload dylib
